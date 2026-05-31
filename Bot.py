@@ -1,6 +1,5 @@
 import asyncio
 import os
-import random
 from datetime import datetime
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
@@ -11,7 +10,6 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.base import StorageKey
 
 # --- НАСТРОЙКИ ---
-# Читаем строго из переменных окружения
 TOKEN = os.getenv('TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID', 6324212559))
 BANNED_FILE = "banned_users.txt"
@@ -48,103 +46,45 @@ class AdminReply(StatesGroup):
 # --- КЛАВИАТУРЫ ---
 def admin_reply_kb(user_id):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Автоответ", callback_data=f"rep_auto_{user_id}")],
         [InlineKeyboardButton(text="💬 Ответить", callback_data=f"rep_personal_{user_id}")],
         [InlineKeyboardButton(text="🚫 БАН", callback_data=f"ban_{user_id}")]
     ])
 
-# --- КОМАНДЫ И ОБРАБОТЧИКИ ---
+def user_reply_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Ответить разработчику", callback_data="user_reply_init")]
+    ])
+
+# --- ОБРАБОТЧИКИ ---
 @dp.message(Command("start"))
 async def start(message: types.Message):
     if message.from_user.id in BANNED_USERS: return
     await message.answer("Привет! 14ОС на связи. Команды: /bug, /respect, /meet")
 
-@dp.message(Command("bug"))
-async def cmd_bug(message: types.Message, state: FSMContext):
-    await state.update_data(category="bug")
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❗️ Критически", callback_data="bug_crit"), InlineKeyboardButton(text="⚠️ Мелкий", callback_data="bug_minor")]])
-    await message.answer("Какая серьезность бага?", reply_markup=kb)
-
-@dp.message(Command("respect"))
-async def cmd_respect(message: types.Message, state: FSMContext):
-    await state.update_data(category="praise")
-    await state.set_state(Feedback.waiting_for_media)
-    await message.answer("Принято, респект! Присылай текст/медиа:")
-
-@dp.message(Command("meet"))
-async def cmd_meet(message: types.Message, state: FSMContext):
-    await state.update_data(category="meet")
-    await state.set_state(Feedback.waiting_for_media)
-    await message.answer("Рад знакомству! Расскажи о себе:")
-
-@dp.message(Command("helpad"))
-async def admin_help(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    await message.answer("/getlogs, /unban [ID], /reset [ID], /stop")
-
-@dp.message(Command("getlogs"))
-async def get_logs(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    log_file = f"logs_{datetime.now().strftime('%Y-%m-%d')}.txt"
-    if os.path.exists(log_file): await message.answer_document(FSInputFile(log_file))
-    else: await message.answer("Логи пусты.")
-
-@dp.message(Command("unban"))
-async def unban_user(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    args = message.text.split()
-    if len(args) < 2: return
-    uid = int(args[1])
-    if uid in BANNED_USERS:
-        BANNED_USERS.remove(uid)
-        with open(BANNED_FILE, "w") as f: f.write("\n".join(map(str, BANNED_USERS)))
-        await message.answer("Разбанен.")
-
-@dp.message(Command("reset"))
-async def reset_state(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    args = message.text.split()
-    if len(args) < 2: return
-    uid = int(args[1])
-    await dp.fsm.storage.set_state(key=storage_key(uid), state=None)
-    await message.answer(f"Состояние {uid} сброшено.")
-
-# --- ЛОГИКА ---
-@dp.callback_query(F.data.startswith("bug_"))
-async def handle_bug(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(level="КРИТИЧЕСКИ" if callback.data == "bug_crit" else "МЕЛКИЙ")
-    await state.set_state(Feedback.waiting_for_media)
-    await callback.message.answer("Принято. Присылай текст или медиа:")
-    await callback.answer()
-
 @dp.message(Feedback.waiting_for_media)
 async def final_message(message: types.Message, state: FSMContext):
-    # ПРОВЕРКА НА БАН
-    if message.from_user.id in BANNED_USERS:
-        return # Бот просто молчит, если юзер в бане
-        
+    if message.from_user.id in BANNED_USERS: return
     data = await state.get_data()
-    # ... дальше всё как было ...
-    cat, lvl = data.get('category', 'DEFAULT').upper(), data.get('level', '')
+    cat = data.get('category', 'SUPPORT').upper()
     txt = message.text or (message.caption or "[МЕДИА]")
-    log_message(message.from_user.id, f"{cat} | {lvl}", txt)
+    log_message(message.from_user.id, cat, txt)
     
-    await bot.send_message(ADMIN_ID, f"✉️ {cat} | {lvl}\nID: `{message.from_user.id}`\nСообщение:", reply_markup=admin_reply_kb(message.from_user.id))
-    await bot.copy_message(ADMIN_ID, message.chat.id, message.message_id)
-    await message.answer("✅ Отправлено!")
+    await message.answer("✅ Отправлено! Если хочешь что-то добавить, нажми:", reply_markup=user_reply_kb())
+    await bot.send_message(ADMIN_ID, f"✉️ {cat}\nID: `{message.from_user.id}`\nСообщение: {txt}", reply_markup=admin_reply_kb(message.from_user.id))
     await state.clear()
 
-@dp.callback_query(F.data.startswith("rep_"))
+@dp.callback_query(F.data == "user_reply_init")
+async def user_reply_start(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(category="REPLY")
+    await state.set_state(Feedback.waiting_for_media)
+    await callback.message.answer("Пиши ответ, он будет доставлен разработчику:")
+
+@dp.callback_query(F.data.startswith("rep_personal_"))
 async def handle_admin(callback: types.CallbackQuery, state: FSMContext):
-    action, uid = callback.data.split("_")[1], callback.data.split("_")[2]
-    if action == "auto":
-        await bot.send_message(uid, "Ваше обращение принято!")
-        await callback.message.edit_text(callback.message.text + "\n\n✅ Отправлен автоответ.")
-    elif action == "personal":
-        await state.update_data(target_user_id=uid)
-        await state.set_state(AdminReply.waiting_for_admin_text)
-        await callback.message.answer(f"Пиши ответ для {uid} (/stop для выхода):")
-    await callback.answer()
+    uid = callback.data.split("_")[2]
+    await state.update_data(target_user_id=uid)
+    await state.set_state(AdminReply.waiting_for_admin_text)
+    await callback.message.answer(f"Пиши ответ для {uid} (/stop для выхода):")
 
 @dp.message(AdminReply.waiting_for_admin_text)
 async def admin_reply(message: types.Message, state: FSMContext):
@@ -152,8 +92,8 @@ async def admin_reply(message: types.Message, state: FSMContext):
         await state.clear()
         return await message.answer("🛑 Диалог окончен.")
     data = await state.get_data()
-    await bot.send_message(data["target_user_id"], f"Ответ: {message.text}")
-    await message.answer("✅ Отправлено.")
+    await bot.send_message(data["target_user_id"], f"✉️ Ответ от 14OS:\n\n{message.text}", reply_markup=user_reply_kb())
+    await message.answer("✅ Отправлено. /stop чтобы закончить.")
 
 @dp.callback_query(F.data.startswith("ban_"))
 async def ban(callback: types.CallbackQuery):
@@ -161,8 +101,32 @@ async def ban(callback: types.CallbackQuery):
     BANNED_USERS.add(int(uid))
     with open(BANNED_FILE, "a") as f: f.write(f"{uid}\n")
     await callback.message.edit_text(callback.message.text + f"\n\n🚫 {uid} В БАНЕ.")
-    await callback.answer("Забанено")
+
+@dp.message(Command("bug"))
+async def cmd_bug(message: types.Message, state: FSMContext):
+    await state.update_data(category="bug")
+    await state.set_state(Feedback.waiting_for_media)
+    await message.answer("Опиши баг:")
+
+@dp.message(Command("respect"))
+async def cmd_respect(message: types.Message, state: FSMContext):
+    await state.update_data(category="respect")
+    await state.set_state(Feedback.waiting_for_media)
+    await message.answer("Присылай респект:")
+
+@dp.message(Command("meet"))
+async def cmd_meet(message: types.Message, state: FSMContext):
+    await state.update_data(category="meet")
+    await state.set_state(Feedback.waiting_for_media)
+    await message.answer("Расскажи о себе:")
+
+@dp.message(Command("reset"))
+async def reset_state(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) < 2: return
+    await dp.fsm.storage.set_state(key=storage_key(int(args[1])), state=None)
+    await message.answer("Сброшено.")
 
 async def main(): await dp.start_polling(bot)
-
 if __name__ == "__main__": asyncio.run(main())
