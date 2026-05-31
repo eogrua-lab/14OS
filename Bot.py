@@ -11,7 +11,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv('TOKEN', 'ТВОЙ_ТОКЕН_ЗДЕСЬ')
-ADMIN_ID =  "ADMIN_ID" # Твой ID
+ADMIN_ID =  "6324212559" # рандом
 BANNED_FILE = "banned_users.txt"
 
 def get_banned_users():
