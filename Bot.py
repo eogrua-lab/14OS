@@ -56,6 +56,21 @@ def user_reply_kb():
         [InlineKeyboardButton(text="💬 Ответить разработчику", callback_data="user_reply_init")]
     ])
 
+# --- КОМАНДА ДЛЯ ПРОСМОТРА ЛОГОВ ---
+@dp.message(Command("logs"))
+async def send_logs(message: types.Message):
+    # Проверка, что это админ
+    if message.from_user.id != ADMIN_ID: return
+    
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    log_file = f"logs_{date_str}.txt"
+    
+    if os.path.exists(log_file):
+        # Отправляем файл лога админу
+        await message.answer_document(FSInputFile(log_file), caption="Вот логи за сегодня:")
+    else:
+        await message.answer("❌ Файл логов за сегодня еще не создан (пока никто не писал).")
+        
 # --- ОБРАБОТЧИКИ ---
 @dp.message(Command("start"))
 async def start(message: types.Message):
@@ -65,8 +80,14 @@ async def start(message: types.Message):
 @dp.message(Command("helpad"))
 async def cmd_helpad(message: types.Message):
     if message.from_user.id != ADMIN_ID: return
-    await message.answer("🛠 Панель админа 14OS:\n/reset [ID] - сброс стейта\nОтветы — через кнопки под репортами.")
-
+    await message.answer(
+        "🛠 **Админ-меню 14OS:**\n\n"
+        "• /reset [ID] — сброс стейта\n"
+        "• /logs — получить файл логов\n"
+        "• Ответы: через кнопки под репортами\n"
+        "• Выход: /stop"
+    )
+    
 @dp.message(Feedback.waiting_for_media)
 async def final_message(message: types.Message, state: FSMContext):
     if message.from_user.id in BANNED_USERS: return
