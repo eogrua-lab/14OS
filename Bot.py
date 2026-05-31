@@ -2,6 +2,8 @@ import asyncio
 import os
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
+# ВОТ ЭТОЙ СТРОКИ, СКОРЕЕ ВСЕГО, НЕ ХВАТАЕТ:
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton 
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
