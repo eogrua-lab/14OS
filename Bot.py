@@ -119,7 +119,12 @@ async def handle_bug(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(Feedback.waiting_for_media)
 async def final_message(message: types.Message, state: FSMContext):
+    # ПРОВЕРКА НА БАН
+    if message.from_user.id in BANNED_USERS:
+        return # Бот просто молчит, если юзер в бане
+        
     data = await state.get_data()
+    # ... дальше всё как было ...
     cat, lvl = data.get('category', 'DEFAULT').upper(), data.get('level', '')
     txt = message.text or (message.caption or "[МЕДИА]")
     log_message(message.from_user.id, f"{cat} | {lvl}", txt)
