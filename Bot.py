@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -36,7 +36,6 @@ def storage_key(user_id: int) -> StorageKey:
 # --- СОСТОЯНИЯ ---
 class Feedback(StatesGroup):
     category = State()
-    level = State()
     waiting_for_media = State()
 
 class AdminReply(StatesGroup):
@@ -47,6 +46,8 @@ class AdminReply(StatesGroup):
 def admin_reply_kb(user_id):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Ответить", callback_data=f"rep_personal_{user_id}")],
+        [InlineKeyboardButton(text="✅ ОК", callback_data=f"tmpl_ok_{user_id}"), 
+         InlineKeyboardButton(text="🛠 Фикшу", callback_data=f"tmpl_fix_{user_id}")],
         [InlineKeyboardButton(text="🚫 БАН", callback_data=f"ban_{user_id}")]
     ])
 
@@ -61,6 +62,11 @@ async def start(message: types.Message):
     if message.from_user.id in BANNED_USERS: return
     await message.answer("Привет! 14ОС на связи. Команды: /bug, /respect, /meet")
 
+@dp.message(Command("helpad"))
+async def cmd_helpad(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    await message.answer("🛠 Панель админа 14OS:\n/reset [ID] - сброс стейта\nОтветы — через кнопки под репортами.")
+
 @dp.message(Feedback.waiting_for_media)
 async def final_message(message: types.Message, state: FSMContext):
     if message.from_user.id in BANNED_USERS: return
@@ -69,7 +75,7 @@ async def final_message(message: types.Message, state: FSMContext):
     txt = message.text or (message.caption or "[МЕДИА]")
     log_message(message.from_user.id, cat, txt)
     
-    await message.answer("✅ Отправлено! Если хочешь что-то добавить, нажми:", reply_markup=user_reply_kb())
+    await message.answer("✅ Отправлено!", reply_markup=user_reply_kb())
     await bot.send_message(ADMIN_ID, f"✉️ {cat}\nID: `{message.from_user.id}`\nСообщение: {txt}", reply_markup=admin_reply_kb(message.from_user.id))
     await state.clear()
 
@@ -77,7 +83,7 @@ async def final_message(message: types.Message, state: FSMContext):
 async def user_reply_start(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(category="REPLY")
     await state.set_state(Feedback.waiting_for_media)
-    await callback.message.answer("Пиши ответ, он будет доставлен разработчику:")
+    await callback.message.answer("Пиши ответ:")
 
 @dp.callback_query(F.data.startswith("rep_personal_"))
 async def handle_admin(callback: types.CallbackQuery, state: FSMContext):
@@ -85,6 +91,14 @@ async def handle_admin(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(target_user_id=uid)
     await state.set_state(AdminReply.waiting_for_admin_text)
     await callback.message.answer(f"Пиши ответ для {uid} (/stop для выхода):")
+
+@dp.callback_query(F.data.startswith("tmpl_"))
+async def handle_templates(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    action, uid = parts[1], parts[2]
+    text = "✅ Принято, спасибо за репорт!" if action == "ok" else "🛠 Баг принят, скоро пофикшу!"
+    await bot.send_message(uid, f"✉️ Ответ от 14OS:\n\n{text}", reply_markup=user_reply_kb())
+    await callback.message.answer(f"✅ Отправлен шаблон {action} юзеру {uid}.")
 
 @dp.message(AdminReply.waiting_for_admin_text)
 async def admin_reply(message: types.Message, state: FSMContext):
