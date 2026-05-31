@@ -13,36 +13,30 @@ from aiogram.fsm.storage.memory import MemoryStorage
 TOKEN = os.getenv('TOKEN', 'ТВОЙ_ТОКЕН_ЗДЕСЬ')
 ADMIN_ID = int(os.getenv('ADMIN_ID', 123456789))
 LANG = "ru"
+BANNED_FILE = "banned_users.txt"
 
-TEXTS = {
-    "ru": {
-        "start": "Привет! Ты нашел секретный канал связи 14ОС. Выбирай:",
-        "cat_bug": "🐞 Нашел баг",
-        "cat_praise": "🔥 Выразить респект",
-        "cat_meet": "🤝 Познакомиться",
-        "bug_crit": "❗️ Критически",
-        "bug_minor": "⚠️ Немного мешает",
-        "prompt_bug": "Ого, ошибка? Насколько она серьезна?",
-        "prompt_text": "Принято. Присылай текст, фото или видео:",
-        "success": "✅ ОТПРАВЛЕНО!"
-    }
-}
+def get_banned_users():
+    if not os.path.exists(BANNED_FILE):
+        return set()
+    with open(BANNED_FILE, "r") as f:
+        return set(int(line.strip()) for line in f)
 
-AUTO_REPLIES = [
-    "Ваше обращение принято и находится на рассмотрении. Спасибо за участие!",
-    "Мы получили ваш тикет. Разработчик уже изучает проблему, ожидайте обновлений.",
-    "Спасибо, что помогаете делать 14 OS лучше! Обращение принято в работу."
-]
+BANNED_USERS = get_banned_users()
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
+# --- СОСТОЯНИЯ ---
 class Feedback(StatesGroup):
     category = State()
     level = State()
     waiting_for_media = State()
 
-# --- ЛОГИРОВАНИЕ ---
+class AdminReply(StatesGroup):
+    waiting_for_admin_text = State()
+    target_user_id = State()
+
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def log_message(user_id, category, message_text):
     date_str = datetime.now().strftime("%Y-%m-%d")
     time_str = datetime.now().strftime("%H:%M:%S")
@@ -53,52 +47,50 @@ def log_message(user_id, category, message_text):
 
 # --- КЛАВИАТУРЫ ---
 def main_kb():
-    t = TEXTS[LANG]
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t["cat_bug"], callback_data="cat_bug")],
-        [InlineKeyboardButton(text=t["cat_praise"], callback_data="cat_praise")],
-        [InlineKeyboardButton(text=t["cat_meet"], callback_data="cat_meet")]
+        [InlineKeyboardButton(text="🐞 Нашел баг", callback_data="cat_bug")],
+        [InlineKeyboardButton(text="🔥 Выразить респект", callback_data="cat_praise")],
+        [InlineKeyboardButton(text="🤝 Познакомиться", callback_data="cat_meet")]
     ])
 
 def bug_kb():
-    t = TEXTS[LANG]
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t["bug_crit"], callback_data="bug_crit")],
-        [InlineKeyboardButton(text=t["bug_minor"], callback_data="bug_minor")]
+        [InlineKeyboardButton(text="❗️ Критически", callback_data="bug_crit")],
+        [InlineKeyboardButton(text="⚠️ Немного мешает", callback_data="bug_minor")]
     ])
 
 def admin_reply_kb(user_id):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Ответ шаблоном", callback_data=f"rep_auto_{user_id}")],
-        [InlineKeyboardButton(text="💬 Написать лично", callback_data=f"rep_personal_{user_id}")]
+        [InlineKeyboardButton(text="✅ Автоответ", callback_data=f"rep_auto_{user_id}")],
+        [InlineKeyboardButton(text="💬 Ответить", callback_data=f"rep_personal_{user_id}")],
+        [InlineKeyboardButton(text="🚫 БАН", callback_data=f"ban_{user_id}")]
     ])
 
 # --- ЛОГИКА ---
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    await message.answer(TEXTS[LANG]["start"], reply_markup=main_kb())
+    if message.from_user.id in BANNED_USERS: return
+    await message.answer("Привет! Ты нашел секретный канал связи 14ОС. Выбирай:", reply_markup=main_kb())
 
-# Команда для получения логов админом
 @dp.message(Command("getlogs"))
 async def get_logs_file(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     date_str = datetime.now().strftime("%Y-%m-%d")
     log_file = f"logs_{date_str}.txt"
     if os.path.exists(log_file):
         await message.answer_document(FSInputFile(log_file))
     else:
-        await message.answer("⚠️ Файл логов за сегодня еще не создан.")
+        await message.answer("⚠️ Файл логов за сегодня пуст.")
 
 @dp.callback_query(F.data.startswith("cat_"))
 async def handle_category(callback: types.CallbackQuery, state: FSMContext):
     cat = callback.data.split("_")[1]
     await state.update_data(category=cat)
     if cat == "bug":
-        await callback.message.answer(TEXTS[LANG]["prompt_bug"], reply_markup=bug_kb())
+        await callback.message.answer("Ого, ошибка? Насколько она серьезна?", reply_markup=bug_kb())
     else:
         await state.set_state(Feedback.waiting_for_media)
-        await callback.message.answer(TEXTS[LANG]["prompt_text"])
+        await callback.message.answer("Принято. Присылай текст, фото или видео:")
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("bug_"))
@@ -106,7 +98,7 @@ async def handle_bug_level(callback: types.CallbackQuery, state: FSMContext):
     level = "КРИТИЧЕСКИ ❗️" if callback.data == "bug_crit" else "МЕЛКИЙ БАГ ⚠️"
     await state.update_data(level=level)
     await state.set_state(Feedback.waiting_for_media)
-    await callback.message.answer(TEXTS[LANG]["prompt_text"])
+    await callback.message.answer("Принято. Присылай текст, фото или видео:")
     await callback.answer()
 
 @dp.message(Feedback.waiting_for_media)
@@ -115,33 +107,42 @@ async def final_message(message: types.Message, state: FSMContext):
     cat = data.get('category', 'DEFAULT').upper()
     lvl = f" | {data.get('level')}" if data.get('level') else ""
     
-    # Логируем
     txt = message.text if message.text else ("[ФОТО/ВИДЕО]" if not message.caption else f"[МЕДИА] {message.caption}")
     log_message(message.from_user.id, f"{cat}{lvl}", txt)
     
-    username = f"@{message.from_user.username}" if message.from_user.username else "NoName"
-    header = f"✉️ {cat}{lvl}\n👤 Юзер: {username}\n🆔 ID: `{message.from_user.id}`"
-    
-    await bot.send_message(
-        chat_id=ADMIN_ID, 
-        text=f"{header}\n\n💬 Сообщение юзера:", 
-        reply_markup=admin_reply_kb(message.from_user.id)
-    )
-    await bot.copy_message(chat_id=ADMIN_ID, from_chat_id=message.chat.id, message_id=message.message_id)
-    
-    await message.answer(TEXTS[LANG]["success"])
+    header = f"✉️ {cat}{lvl}\n👤 Юзер: @{message.from_user.username or 'NoName'}\n🆔 ID: `{message.from_user.id}`"
+    await bot.send_message(ADMIN_ID, f"{header}\n\n💬 Сообщение:", reply_markup=admin_reply_kb(message.from_user.id))
+    await bot.copy_message(ADMIN_ID, message.chat.id, message.message_id)
+    await message.answer("✅ ОТПРАВЛЕНО!")
     await state.clear()
 
 @dp.callback_query(F.data.startswith("rep_"))
-async def handle_admin_reply(callback: types.CallbackQuery):
-    _, action, user_id = callback.data.split("_")
+async def handle_admin_reply(callback: types.CallbackQuery, state: FSMContext):
+    action, user_id = callback.data.split("_")[1], callback.data.split("_")[2]
     if action == "auto":
-        await bot.send_message(chat_id=user_id, text=random.choice(AUTO_REPLIES))
+        replies = ["Ваше обращение принято!", "Мы изучаем проблему.", "Спасибо, помогаете 14 OS лучше!"]
+        await bot.send_message(user_id, random.choice(replies))
         await callback.message.edit_text(callback.message.text + "\n\n✅ Отправлен автоответ.")
     elif action == "personal":
-        await bot.send_message(chat_id=user_id, text="Привет! Это разработчик 14 OS. О чем ты хотел поговорить?")
-        await callback.message.edit_text(callback.message.text + "\n\n💬 Отправлено личное приветствие.")
+        await state.update_data(target_user_id=user_id)
+        await state.set_state(AdminReply.waiting_for_admin_text)
+        await callback.message.answer(f"Пиши ответ для юзера {user_id}:")
     await callback.answer()
+
+@dp.message(AdminReply.waiting_for_admin_text)
+async def send_admin_reply(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    await bot.send_message(data["target_user_id"], f"Ответ от разработчика:\n\n{message.text}")
+    await message.answer("✅ Отправлено.")
+    await state.clear()
+
+@dp.callback_query(F.data.startswith("ban_"))
+async def ban_user(callback: types.CallbackQuery):
+    user_id = callback.data.split("_")[1]
+    BANNED_USERS.add(int(user_id))
+    with open(BANNED_FILE, "a") as f: f.write(f"{user_id}\n")
+    await callback.message.edit_text(callback.message.text + f"\n\n🚫 ЮЗЕР {user_id} В БАНЕ.")
+    await callback.answer("Забанено")
 
 async def main():
     await dp.start_polling(bot)
